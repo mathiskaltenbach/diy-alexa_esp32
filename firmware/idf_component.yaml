@@ -1,2 +1,7 @@
 version: "1.0.0"
 description: Diy-Alexa
+
+dependencies:
+  arduino:
+    git: https://github.com/espressif/arduino-esp32.git
+    path: tools/sdk/arduino
