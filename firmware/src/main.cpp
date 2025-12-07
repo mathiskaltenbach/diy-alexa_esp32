@@ -1,16 +1,16 @@
-#include <Arduino.h>
+#include "ADCSampler.h"
+#include "Application.h"
+#include "I2SMicSampler.h"
+#include "I2SOutput.h"
+#include "IndicatorLight.h"
+#include "IntentProcessor.h"
+#include "SPIFFS.h"
+#include "Speaker.h"
+#include "config.h"
+#include "esp_log.h"
 #include <WiFi.h>
 #include <driver/i2s.h>
 #include <esp_task_wdt.h>
-#include "I2SMicSampler.h"
-#include "ADCSampler.h"
-#include "I2SOutput.h"
-#include "config.h"
-#include "Application.h"
-#include "SPIFFS.h"
-#include "IntentProcessor.h"
-#include "Speaker.h"
-#include "IndicatorLight.h"
 
 // i2s config for using the internal ADC
 i2s_config_t adcI2SConfig = {
@@ -41,60 +41,55 @@ i2s_config_t i2sMemsConfigBothChannels = {
     .fixed_mclk = 0};
 
 // i2s microphone pins
-i2s_pin_config_t i2s_mic_pins = {
-    .bck_io_num = I2S_MIC_SERIAL_CLOCK,
-    .ws_io_num = I2S_MIC_LEFT_RIGHT_CLOCK,
-    .data_out_num = I2S_PIN_NO_CHANGE,
-    .data_in_num = I2S_MIC_SERIAL_DATA};
+i2s_pin_config_t i2s_mic_pins = {.bck_io_num = I2S_MIC_SERIAL_CLOCK,
+                                 .ws_io_num = I2S_MIC_LEFT_RIGHT_CLOCK,
+                                 .data_out_num = I2S_PIN_NO_CHANGE,
+                                 .data_in_num = I2S_MIC_SERIAL_DATA};
 
 // i2s speaker pins
-i2s_pin_config_t i2s_speaker_pins = {
-    .bck_io_num = I2S_SPEAKER_SERIAL_CLOCK,
-    .ws_io_num = I2S_SPEAKER_LEFT_RIGHT_CLOCK,
-    .data_out_num = I2S_SPEAKER_SERIAL_DATA,
-    .data_in_num = I2S_PIN_NO_CHANGE};
+i2s_pin_config_t i2s_speaker_pins = {.bck_io_num = I2S_SPEAKER_SERIAL_CLOCK,
+                                     .ws_io_num = I2S_SPEAKER_LEFT_RIGHT_CLOCK,
+                                     .data_out_num = I2S_SPEAKER_SERIAL_DATA,
+                                     .data_in_num = I2S_PIN_NO_CHANGE};
 
 // This task does all the heavy lifting for our application
-void applicationTask(void *param)
-{
+void applicationTask(void *param) {
   Application *application = static_cast<Application *>(param);
 
   const TickType_t xMaxBlockTime = pdMS_TO_TICKS(100);
-  while (true)
-  {
+  while (true) {
     // wait for some audio samples to arrive
     uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, xMaxBlockTime);
-    if (ulNotificationValue > 0)
-    {
+    if (ulNotificationValue > 0) {
       application->run();
     }
   }
 }
 
-void setup()
-{
+void setup() {
+  const char *TAG = "main::setup";
   Serial.begin(115200);
   delay(1000);
-  Serial.println("Starting up");
+  ESP_LOGI(TAG, "Starting up");
   // start up wifi
   // launch WiFi
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PSWD);
-  if (WiFi.waitForConnectResult() != WL_CONNECTED)
-  {
-    Serial.println("Connection Failed! Rebooting...");
+  if (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    ESP_LOGI(TAG, "Connection Failed! Rebooting...");
     delay(5000);
     ESP.restart();
   }
-  Serial.printf("Total heap: %d\n", ESP.getHeapSize());
-  Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
+  ESP_LOGI(TAG, "Total heap: %d\n", ESP.getHeapSize());
+  ESP_LOGI(TAG, "Free heap: %d\n", ESP.getFreeHeap());
 
   // startup SPIFFS for the wav files
   SPIFFS.begin();
   // make sure we don't get killed for our long running tasks
   esp_task_wdt_init(10, false);
 
-  // start up the I2S input (from either an I2S microphone or Analogue microphone via the ADC)
+  // start up the I2S input (from either an I2S microphone or Analogue
+  // microphone via the ADC)
 #ifdef USE_I2S_MIC_INPUT
   // Direct i2s input from INMP441 or the SPH0645
   I2SSampler *i2s_sampler = new I2SMicSampler(i2s_mic_pins, false);
@@ -118,21 +113,22 @@ void setup()
   intent_processor->addDevice("table", GPIO_NUM_23);
 
   // create our application
-  Application *application = new Application(i2s_sampler, intent_processor, speaker, indicator_light);
+  Application *application =
+      new Application(i2s_sampler, intent_processor, speaker, indicator_light);
 
   // set up the i2s sample writer task
   TaskHandle_t applicationTaskHandle;
-  xTaskCreate(applicationTask, "Application Task", 8192, application, 1, &applicationTaskHandle);
+  xTaskCreate(applicationTask, "Application Task", 8192, application, 1,
+              &applicationTaskHandle);
 
-  // start sampling from i2s device - use I2S_NUM_0 as that's the one that supports the internal ADC
+  // start sampling from i2s device - use I2S_NUM_0 as that's the one that
+  // supports the internal ADC
 #ifdef USE_I2S_MIC_INPUT
-  i2s_sampler->start(I2S_NUM_0, i2sMemsConfigBothChannels, applicationTaskHandle);
+  i2s_sampler->start(I2S_NUM_0, i2sMemsConfigBothChannels,
+                     applicationTaskHandle);
 #else
   i2s_sampler->start(I2S_NUM_0, adcI2SConfig, applicationTaskHandle);
 #endif
 }
 
-void loop()
-{
-  vTaskDelay(1000);
-}
+void loop() { vTaskDelay(1000); }
